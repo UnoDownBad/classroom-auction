@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classroom Auction | Gamified Token Economy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        
+        .glass-panel {
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.82) 0%, rgba(30, 15, 30, 0.78) 100%);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(244, 114, 182, 0.25);
+            box-shadow: 0 8px 32px 0 rgba(236, 72, 153, 0.12), inset 0 0 12px 0 rgba(255, 182, 193, 0.08);
+            position: relative;
+        }
+
+        .coin-bounce { animation: float 3s ease-in-out infinite; }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-6px) rotate(6deg); }
+        }
+
+        .sakura-container {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: -5; overflow: hidden;
+        }
+        .sakura-flower {
+            position: absolute; top: -20%; pointer-events: none; opacity: 0.65;
+            animation: fall linear infinite, sway ease-in-out infinite alternate;
+            filter: drop-shadow(0px 4px 8px rgba(0, 0, 0, 0.3));
+        }
+        @keyframes fall { 0% { top: -20%; } 100% { top: 110%; } }
+        @keyframes sway {
+            0% { transform: translateX(-40px) rotate(0deg) scale(0.9); }
+            100% { transform: translateX(100px) rotate(360deg) scale(1.1); }
+        }
+    </style>
+</head>
+<body class="min-h-full text-slate-100 antialiased selection:bg-pink-500 selection:text-white flex flex-col">
+    <div class="sakura-container" id="sakura-container"></div>
+    
+    <div class="fixed inset-0 pointer-events-none overflow-hidden -z-10">
+        <div class="absolute -top-40 -left-40 w-96 h-96 bg-pink-600/20 rounded-full blur-3xl"></div>
+        <div class="absolute top-1/2 -right-40 w-96 h-96 bg-rose-600/20 rounded-full blur-3xl"></div>
+        <div class="absolute -bottom-40 left-1/3 w-96 h-96 bg-fuchsia-600/15 rounded-full blur-3xl"></div>
+    </div>
+
+    <!-- WINNER CELEBRATION MODAL -->
+    <div id="winner-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden transition-all duration-300 opacity-0 transform scale-95">
+        <div class="glass-panel w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-pink-500/50 shadow-pink-500/20 relative overflow-hidden text-center space-y-4">
+            <div class="absolute -top-12 -right-12 w-32 h-32 bg-pink-500/20 rounded-full blur-2xl"></div>
+            
+            <div class="inline-flex p-4 rounded-2xl bg-gradient-to-tr from-pink-500/25 via-rose-500/20 to-fuchsia-500/15 border border-pink-500/40 text-pink-300 shadow-lg shadow-pink-500/20 coin-bounce">
+                <i class="fa-solid fa-award text-4xl text-pink-300"></i>
+            </div>
+            
+            <div class="space-y-1">
+                <span class="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30">AUCTION WINNER 🌸</span>
+                <h3 id="winner-perk-title" class="text-xl font-extrabold text-white tracking-tight pt-2">Perk Title</h3>
+                <p class="text-xs text-slate-300 pt-1 leading-relaxed">
+                    Won by <strong id="winner-name" class="text-pink-300 text-sm">Student Name</strong>
+                </p>
+                <p class="text-xs text-slate-400 pt-1">
+                    Final Winning Bid: <span class="text-amber-400 font-extrabold"><i class="fa-solid fa-coins text-amber-400"></i> <span id="winner-bid">0</span> coins</span>
+                </p>
+            </div>
+            <button onclick="closeWinnerModal()" class="w-full bg-gradient-to-r from-pink-500 via-rose-500 to-pink-600 hover:from-pink-600 hover:to-rose-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-lg shadow-pink-500/25 transition transform active:scale-95">
+                Congratulations! 🌸
+            </button>
+        </div>
+    </div>
+
+    <!-- CUSTOM ALERT MODAL -->
+    <div id="custom-alert-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden transition-all duration-300 opacity-0 transform scale-95">
+        <div class="glass-panel w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-pink-500/40 relative overflow-hidden text-center space-y-4">
+            <div class="inline-flex p-4 rounded-2xl bg-gradient-to-tr from-pink-500/20 to-rose-500/10 border border-pink-500/30 text-pink-300 shadow-lg shadow-pink-500/10">
+                <i class="fa-solid fa-bell text-2xl animate-bounce"></i>
+            </div>
+            <div class="space-y-1">
+                <h3 id="alert-title" class="text-xl font-extrabold text-white tracking-tight flex items-center justify-center gap-2">Notice 🌸</h3>
+                <p id="alert-message" class="text-xs text-slate-300 pt-1 leading-relaxed">Message goes here...</p>
+            </div>
+            <button onclick="closeCustomAlert()" class="w-full bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-pink-500/25 transition transform active:scale-95">
+                Got It
+            </button>
+        </div>
+    </div>
+
+    <!-- EDIT PROFILE MODAL (Name & Avatar) -->
+    <div id="avatar-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden transition-all duration-300">
+        <div class="glass-panel w-full max-w-md rounded-3xl p-6 shadow-2xl border border-pink-500/30 relative overflow-hidden text-center space-y-4">
+            <div class="flex justify-between items-center pb-2 border-b border-white/10">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-user-pen text-pink-400"></i> Edit Profile
+                </h3>
+                <button onclick="closeAvatarModal()" class="text-slate-400 hover:text-white text-sm"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="text-left space-y-1">
+                <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Display Name</label>
+                <div class="relative">
+                    <i class="fa-solid fa-pen absolute left-3.5 top-3 text-pink-400 text-xs"></i>
+                    <input type="text" id="modal-name-input" placeholder="Enter new display name..." class="w-full bg-slate-900 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-pink-500">
+                </div>
+            </div>
+
+            <div class="relative w-24 h-24 mx-auto rounded-full p-1 bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400 shadow-xl">
+                <div class="w-full h-full rounded-full bg-slate-100 overflow-hidden flex items-center justify-center">
+                    <img id="avatar-preview" src="https://api.dicebear.com/7.x/bottts/svg?seed=preview" class="w-full h-full object-cover">
+                </div>
+            </div>
+
+            <div class="space-y-2.5">
+                <label class="w-full bg-slate-900/90 hover:bg-slate-800 border border-pink-500/40 text-pink-300 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg transition">
+                    <i class="fa-solid fa-upload"></i> Upload Photo from Device
+                    <input type="file" id="modal-file-input" accept="image/*" onchange="handleModalFileUpload(event)" class="hidden">
+                </label>
+
+                <div class="relative">
+                    <input type="text" id="avatar-url-input" placeholder="Or paste photo link (URL)..." oninput="previewAvatarUrl()" class="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500">
+                </div>
+
+                <div>
+                    <p class="text-[11px] text-slate-400 font-semibold mb-1.5">Or select an avatar style:</p>
+                    <div class="flex justify-center gap-2" id="preset-avatars">
+                        <img onclick="selectPreset('bottts')" src="https://api.dicebear.com/7.x/bottts/svg?seed=1" class="w-9 h-9 rounded-full cursor-pointer border border-white/10 hover:border-pink-400 bg-white p-0.5">
+                        <img onclick="selectPreset('adventurer')" src="https://api.dicebear.com/7.x/adventurer/svg?seed=2" class="w-9 h-9 rounded-full cursor-pointer border border-white/10 hover:border-pink-400 bg-white p-0.5">
+                        <img onclick="selectPreset('avataaars')" src="https://api.dicebear.com/7.x/avataaars/svg?seed=3" class="w-9 h-9 rounded-full cursor-pointer border border-white/10 hover:border-pink-400 bg-white p-0.5">
+                        <img onclick="selectPreset('thumbs')" src="https://api.dicebear.com/7.x/thumbs/svg?seed=4" class="w-9 h-9 rounded-full cursor-pointer border border-white/10 hover:border-pink-400 bg-white p-0.5">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 pt-1">
+                <button onclick="closeAvatarModal()" class="w-1/2 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold py-2.5 rounded-xl text-xs border border-white/10 transition">Cancel</button>
+                <button onclick="saveAvatar()" class="w-1/2 bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TEACHER PASSCODE MODAL -->
+    <div id="teacher-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden transition-all duration-300">
+        <div class="glass-panel w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-pink-500/30 relative overflow-hidden">
+            <div class="text-center mb-5">
+                <div class="inline-flex p-3.5 rounded-2xl bg-gradient-to-tr from-pink-500/20 to-rose-500/10 border border-pink-500/30 text-pink-400 mb-3 shadow-lg shadow-pink-500/10">
+                    <i class="fa-solid fa-key text-2xl text-pink-300"></i>
+                </div>
+                <h3 class="text-xl font-extrabold text-white tracking-tight flex items-center justify-center gap-2">Teacher Verification 🌸</h3>
+                <p class="text-xs text-slate-400 mt-1">Please enter your passcode to access the portal</p>
+            </div>
+            <div class="space-y-4">
+                <div class="relative">
+                    <i class="fa-solid fa-lock absolute left-4 top-3.5 text-pink-400 text-xs"></i>
+                    <input type="password" id="modal-passcode" placeholder="Enter teacher passcode..." onkeydown="handlePasscodeKeyDown(event)" class="w-full bg-slate-900/80 border border-pink-500/30 rounded-xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-400 transition shadow-inner">
+                </div>
+                <div class="flex items-center gap-2 pt-1">
+                    <button onclick="closeTeacherModal()" class="w-1/2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white font-bold py-2.5 rounded-xl text-xs border border-white/10 transition">Cancel</button>
+                    <button onclick="confirmTeacherPasscode()" class="w-1/2 bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-pink-500/25 transition transform active:scale-95">Access Portal</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 w-full flex-1">
+        <!-- AUTHENTICATION SCREEN -->
+        <div id="login-screen" class="max-w-md mx-auto my-auto mt-12 sm:mt-20">
+            <div class="glass-panel rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+                <div class="text-center mb-8">
+                    <div class="inline-flex p-3 rounded-2xl bg-pink-500/10 border border-pink-500/20 text-pink-400 mb-4 coin-bounce">
+                        <i class="fa-solid fa-coins text-3xl text-amber-400"></i>
+                    </div>
+                    <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-pink-300 bg-clip-text text-transparent">Classroom Auction</h1>
+                    <p class="text-slate-400 text-sm mt-2">Gamified Classroom Coin & Bidding Economy</p>
+                </div>
+
+                <div class="flex bg-slate-900/80 p-1 rounded-2xl border border-white/5 mb-6">
+                    <button id="tab-student" onclick="switchPortal('student')" class="w-1/2 py-2.5 text-sm font-bold rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-lg transition-all duration-200">
+                        <i class="fa-solid fa-user-graduate mr-1.5"></i> Student
+                    </button>
+                    <button id="tab-teacher" onclick="switchPortal('teacher')" class="w-1/2 py-2.5 text-sm font-semibold text-slate-400 hover:text-white rounded-xl transition-all duration-200">
+                        <i class="fa-solid fa-chalkboard-user mr-1.5"></i> Teacher
+                    </button>
+                </div>
+
+                <!-- Student Login Form -->
+                <div id="student-login-form" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Student Name</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-user absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="text" id="login-name" placeholder="Enter full name" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Password</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-lock absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="password" id="login-pass" placeholder="••••••••" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition">
+                        </div>
+                    </div>
+                    <button onclick="loginStudent()" class="w-full bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-pink-500/25 transition transform active:scale-95">
+                        Log In to Account
+                    </button>
+                    <p class="text-xs text-center text-slate-400 mt-4">
+                        Don't have an account? <span onclick="toggleAuthMode('student', 'signup')" class="text-pink-400 font-semibold cursor-pointer hover:underline">Sign Up here</span>
+                    </p>
+                </div>
+
+                <!-- Student Sign Up Form -->
+                <div id="student-signup-form" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Full Name</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-id-card absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="text" id="signup-name" placeholder="Enter your full name" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                        </div>
+                    </div>
+
+                    <!-- Course, Year Level & Section Dropdowns -->
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Course</label>
+                            <select id="signup-course" class="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2 py-3 text-xs text-white focus:outline-none focus:border-emerald-500 transition">
+                                <option value="BSIT">BSIT</option>
+                                <option value="BSHM">BSHM</option>
+                                <option value="BSBA">BSBA</option>
+                                <option value="BSED">BSED</option>
+                                <option value="BEED">BEED</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Year Level</label>
+                            <select id="signup-year" class="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2 py-3 text-xs text-white focus:outline-none focus:border-emerald-500 transition">
+                                <option value="1st Year">1st Year</option>
+                                <option value="2nd Year">2nd Year</option>
+                                <option value="3rd Year">3rd Year</option>
+                                <option value="4th Year">4th Year</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Section</label>
+                            <select id="signup-section-letter" class="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2 py-3 text-xs text-white focus:outline-none focus:border-emerald-500 transition">
+                                <option value="A">Section A</option>
+                                <option value="B">Section B</option>
+                                <option value="C">Section C</option>
+                                <option value="D">Section D</option>
+                                <option value="E">Section E</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Profile Photo (Optional)</label>
+                        <div class="flex gap-2">
+                            <label class="bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-xl px-3 py-3 text-xs font-bold text-slate-300 cursor-pointer flex items-center gap-2">
+                                <i class="fa-solid fa-upload text-emerald-400"></i> Upload
+                                <input type="file" accept="image/*" onchange="handleSignupFileUpload(event, 'student')" class="hidden">
+                            </label>
+                            <input type="text" id="signup-avatar" placeholder="Or paste image URL..." class="flex-1 bg-slate-900/60 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Create Password</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-key absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="password" id="signup-pass" placeholder="At least 4 characters" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                        </div>
+                    </div>
+                    <button onclick="signupStudent()" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-500/25 transition transform active:scale-95">
+                        <i class="fa-solid fa-gift mr-1.5"></i> Register & Get 100 Coins
+                    </button>
+                    <p class="text-xs text-center text-slate-400 mt-4">
+                        Already registered? <span onclick="toggleAuthMode('student', 'login')" class="text-emerald-400 font-semibold cursor-pointer hover:underline">Log In</span>
+                    </p>
+                </div>
+
+                <!-- Teacher Login Form -->
+                <div id="teacher-login-form" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Teacher Name</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-chalkboard-user absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="text" id="teacher-name" placeholder="e.g. Ms. Smith" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Teacher Password</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-shield-halved absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="password" id="teacher-pass" placeholder="Enter password" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition">
+                        </div>
+                    </div>
+                    <button onclick="loginTeacher()" class="w-full bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-pink-500/25 transition transform active:scale-95">
+                        Access Teacher Dashboard
+                    </button>
+                    <p class="text-xs text-center text-slate-400 mt-4">
+                        Don't have a teacher account? <span onclick="toggleAuthMode('teacher', 'signup')" class="text-pink-400 font-semibold cursor-pointer hover:underline">Sign Up here</span>
+                    </p>
+                </div>
+
+                <!-- Teacher Sign Up Form (Multiple Sections Builder) -->
+                <div id="teacher-signup-form" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Teacher Name</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-chalkboard-user absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="text" id="teacher-signup-name" placeholder="e.g. Mr. Johnson" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition">
+                        </div>
+                    </div>
+
+                    <!-- Teacher Multi-Section Builder -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Assigned Classes / Sections</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <select id="teacher-add-course" class="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2 py-2 text-xs text-white focus:outline-none focus:border-rose-500 transition">
+                                    <option value="BSIT">BSIT</option>
+                                    <option value="BSHM">BSHM</option>
+                                    <option value="BSBA">BSBA</option>
+                                    <option value="BSED">BSED</option>
+                                    <option value="BEED">BEED</option>
+                                </select>
+                            </div>
+                            <div>
+                                <select id="teacher-add-year" class="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2 py-2 text-xs text-white focus:outline-none focus:border-rose-500 transition">
+                                    <option value="1st Year">1st Year</option>
+                                    <option value="2nd Year">2nd Year</option>
+                                    <option value="3rd Year">3rd Year</option>
+                                    <option value="4th Year">4th Year</option>
+                                </select>
+                            </div>
+                            <div>
+                                <select id="teacher-add-letter" class="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2 py-2 text-xs text-white focus:outline-none focus:border-rose-500 transition">
+                                    <option value="A">Section A</option>
+                                    <option value="B">Section B</option>
+                                    <option value="C">Section C</option>
+                                    <option value="D">Section D</option>
+                                    <option value="E">Section E</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="button" onclick="addTeacherSectionToList()" class="w-full mt-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold py-2 rounded-xl text-xs border border-rose-500/30 transition">
+                            <i class="fa-solid fa-plus mr-1"></i> Add Course & Section
+                        </button>
+                        <div id="teacher-added-sections" class="flex flex-wrap gap-1.5 mt-2.5 max-h-24 overflow-y-auto"></div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Profile Photo (Optional)</label>
+                        <div class="flex gap-2">
+                            <label class="bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-xl px-3 py-3 text-xs font-bold text-slate-300 cursor-pointer flex items-center gap-2">
+                                <i class="fa-solid fa-upload text-rose-400"></i> Upload
+                                <input type="file" accept="image/*" onchange="handleSignupFileUpload(event, 'teacher')" class="hidden">
+                            </label>
+                            <input type="text" id="teacher-signup-avatar" placeholder="Or paste image URL..." class="flex-1 bg-slate-900/60 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Create Password</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-key absolute left-4 top-3.5 text-slate-500 text-sm"></i>
+                            <input type="password" id="teacher-signup-pass" placeholder="At least 4 characters" class="w-full bg-slate-900/60 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition">
+                        </div>
+                    </div>
+                    <button onclick="signupTeacher()" class="w-full bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-rose-500/25 transition transform active:scale-95">
+                        <i class="fa-solid fa-user-plus mr-1.5"></i> Register Teacher Account
+                    </button>
+                    <p class="text-xs text-center text-slate-400 mt-4">
+                        Already have an account? <span onclick="toggleAuthMode('teacher', 'login')" class="text-rose-400 font-semibold cursor-pointer hover:underline">Log In</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN DASHBOARD APP -->
+        <div id="app-screen" class="space-y-6 hidden">
+            <!-- Header Bar -->
+            <header class="glass-panel rounded-2xl p-4 sm:p-6 shadow-xl flex flex-wrap justify-between items-center gap-4">
+                <div class="flex items-center gap-4">
+                    <div onclick="openAvatarModal()" class="relative cursor-pointer group" title="Click to edit profile & name">
+                        <div class="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400 shadow-xl shadow-pink-500/20 group-hover:scale-105 transition-all duration-200">
+                            <div class="w-full h-full rounded-full bg-slate-100 overflow-hidden flex items-center justify-center">
+                                <img id="user-avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=user" class="w-full h-full object-cover">
+                            </div>
+                        </div>
+                        <div class="absolute bottom-0 right-0 w-6 h-6 bg-pink-600 hover:bg-pink-500 text-white rounded-full border-2 border-slate-950 flex items-center justify-center text-xs shadow-md transition-transform group-hover:scale-110">
+                            <i class="fa-solid fa-camera"></i>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-xl sm:text-2xl font-bold text-white tracking-tight" id="user-name">-</h2>
+                            <button onclick="openAvatarModal()" title="Edit Name" class="text-pink-400 hover:text-pink-300 text-xs p-1"><i class="fa-solid fa-pen"></i></button>
+                            <span id="user-role-badge" class="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-pink-500/20 border border-pink-500/30 text-pink-300">STUDENT</span>
+                        </div>
+                        <p id="wallet-info" class="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
+                            Wallet Balance:
+                            <span class="text-emerald-400 font-extrabold text-base flex items-center gap-1.5">
+                                <i class="fa-solid fa-coins text-amber-400"></i> <span id="coin-balance">0</span>
+                            </span>
+                        </p>
+                    </div>
+                </div>
+                
+                <button onclick="logout()" class="px-4 py-2.5 rounded-xl bg-slate-900/80 border border-white/10 hover:border-rose-500/40 text-slate-300 hover:text-rose-400 text-xs font-bold transition flex items-center gap-2">
+                    <i class="fa-solid fa-right-from-bracket"></i> Log Out
+                </button>
+            </header>
+
+            <!-- Teacher Active Section Switcher Bar -->
+            <div id="teacher-section-bar" class="glass-panel p-4 rounded-2xl flex items-center justify-between gap-4 hidden">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-layer-group text-pink-400"></i>
+                    <span class="text-xs font-bold text-slate-300 uppercase tracking-wider">Active Managed Section:</span>
+                </div>
+                <select id="teacher-active-section-select" onchange="changeTeacherActiveSection(this.value)" class="bg-slate-900 border border-pink-500/40 rounded-xl px-4 py-2 text-xs font-bold text-pink-300 focus:outline-none">
+                </select>
+            </div>
+
+            <!-- Teacher Panel -->
+            <div id="teacher-panel" class="space-y-6 hidden">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="glass-panel p-5 rounded-2xl flex items-center gap-4">
+                        <div class="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-2xl">
+                            <i class="fa-solid fa-vault"></i>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Section Coins Pool</p>
+                            <h3 class="text-2xl font-extrabold text-white mt-0.5 flex items-center gap-2">
+                                <i class="fa-solid fa-coins text-amber-400"></i> <span id="stat-coins">0</span>
+                            </h3>
+                        </div>
+                    </div>
+                    <div class="glass-panel p-5 rounded-2xl flex items-center gap-4">
+                        <div class="p-3.5 bg-pink-500/10 border border-pink-500/20 rounded-2xl text-pink-400 text-2xl">
+                            <i class="fa-solid fa-gavel"></i>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Section Active Auctions</p>
+                            <h3 class="text-2xl font-extrabold text-white mt-0.5"><span id="stat-auctions">0</span> Perks</h3>
+                        </div>
+                    </div>
+                    <div class="glass-panel p-5 rounded-2xl flex items-center gap-4">
+                        <div class="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-400 text-2xl">
+                            <i class="fa-solid fa-hand-holding-dollar"></i>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Section Total Bids</p>
+                            <h3 class="text-2xl font-extrabold text-white mt-0.5"><span id="stat-bids">0</span> Bids</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-panel p-6 rounded-2xl space-y-4">
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-wand-magic-sparkles text-pink-400"></i> Teacher Ledger (Coins Control)
+                        </h3>
+                        <div class="space-y-3">
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <select id="target-select" onchange="toggleTargetSelect()" class="bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500">
+                                    <option value="single">Single Student</option>
+                                    <option value="all">Whole Section (Bulk)</option>
+                                </select>
+                                <select id="student-select" class="bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500 flex-1"></select>
+                            </div>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <div class="relative w-full sm:w-1/3">
+                                    <i class="fa-solid fa-coins text-amber-400 absolute left-3 top-3.5 text-xs"></i>
+                                    <input type="number" id="coin-amount" placeholder="Amount" value="20" class="bg-slate-900 border border-white/10 rounded-xl pl-8 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500 w-full">
+                                </div>
+                                <input type="text" id="coin-reason" placeholder="Reason (e.g. Quiz Winner, Helpful Behavior)" class="bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500 flex-1">
+                            </div>
+                            <button onclick="awardCoins()" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-emerald-500/20 transition">
+                                Apply Coin Transaction
+                            </button>
+                        </div>
+                    </div>
+                    <div class="glass-panel p-6 rounded-2xl space-y-4">
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-plus-circle text-rose-400"></i> Create Live Perk Auction
+                        </h3>
+                        <div class="space-y-3">
+                            <input type="text" id="perk-title" placeholder="Perk Title (e.g., Homework Pass)" class="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500">
+                            <input type="text" id="perk-desc" placeholder="Perk Description" class="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500">
+                            
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div class="relative">
+                                    <i class="fa-solid fa-coins text-amber-400 absolute left-3 top-3.5 text-xs"></i>
+                                    <input type="number" id="perk-bid" placeholder="Start Bid" value="10" class="w-full bg-slate-900 border border-white/10 rounded-xl pl-8 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500">
+                                </div>
+                                <div class="flex gap-1">
+                                    <input type="number" id="perk-duration" placeholder="Duration" value="10" class="w-1/2 bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500">
+                                    <select id="perk-unit" class="w-1/2 bg-slate-900 border border-white/10 rounded-xl px-2 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500">
+                                        <option value="mins">Mins</option>
+                                        <option value="hours">Hours</option>
+                                        <option value="days">Days</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button onclick="createPerk()" class="w-full bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-pink-500/20 transition">
+                                Launch Auction Item
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Student Roster -->
+                <div class="glass-panel p-6 rounded-2xl space-y-4">
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-users text-pink-400"></i> Active Student Roster
+                    </h3>
+                    <div id="student-roster-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
+                </div>
+
+                <!-- Archived Students Section -->
+                <div class="glass-panel p-6 rounded-2xl space-y-4 border border-amber-500/20">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-base font-bold text-slate-300 flex items-center gap-2">
+                            <i class="fa-solid fa-box-archive text-amber-400"></i> Archived Students
+                        </h3>
+                        <span id="archived-count" class="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-slate-900 text-amber-300 border border-amber-500/30">0 ARCHIVED</span>
+                    </div>
+                    <div id="archived-roster-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
+                </div>
+            </div>
+
+            <!-- Main Live Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 space-y-6">
+                    <!-- Live Perks Section -->
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-fire text-amber-500"></i> Section Live Perks
+                            </h3>
+                            <span class="text-xs text-slate-400"><i class="fa-solid fa-rotate-right mr-1"></i> Real-time Updated</span>
+                        </div>
+                        <div id="perks-list" class="space-y-4"></div>
+                    </div>
+
+                    <!-- Section Winner History Card -->
+                    <div class="space-y-4 pt-4 border-t border-white/10">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-trophy text-amber-400"></i> Section Winners History
+                            </h3>
+                            <span class="text-xs text-slate-400">Completed Section Auctions</span>
+                        </div>
+                        <div id="winner-history-list" class="space-y-3 max-h-[350px] overflow-y-auto pr-1"></div>
+                    </div>
+                </div>
+
+                <!-- Coin Ledger Column -->
+                <div class="space-y-4">
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-clock-rotate-left text-pink-400"></i> Coin Ledger History
+                    </h3>
+                    <div class="glass-panel rounded-2xl p-4 max-h-[520px] overflow-y-auto space-y-2 text-xs">
+                        <div id="history-container" class="space-y-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.alert = function(msg) {
+            showCustomAlert(msg, "Notice 🌸");
+        };
+
+        const SAKURA_FLOWER_SVG = `
+        <svg viewBox="0 0 200 200" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <radialGradient id="petalGrad" cx="50%" cy="100%" r="90%">
+                    <stop offset="0%" stop-color="#72112b" />
+                    <stop offset="20%" stop-color="#c93b68" />
+                    <stop offset="55%" stop-color="#ff8da9" />
+                    <stop offset="85%" stop-color="#ffb7ca" />
+                    <stop offset="100%" stop-color="#ffd5e1" />
+                </radialGradient>
+                <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#4a0011" />
+                    <stop offset="70%" stop-color="#800a2a" />
+                    <stop offset="100%" stop-color="#800a2a" stop-opacity="0" />
+                </radialGradient>
+            </defs>
+            <g transform="translate(100,100)">
+                <g id="petals">
+                    <path d="M 0,-12 C -22,-30 -42,-65 -22,-85 C -12,-95 -4,-86 0,-78 C 4,-86 12,-95 22,-85 C 42,-65 22,-30 0,-12 Z" fill="url(#petalGrad)" stroke="#c24368" stroke-width="0.8" opacity="0.92" />
+                    <g transform="rotate(72)"><path d="M 0,-12 C -22,-30 -42,-65 -22,-85 C -12,-95 -4,-86 0,-78 C 4,-86 12,-95 22,-85 C 42,-65 22,-30 0,-12 Z" fill="url(#petalGrad)" stroke="#c24368" stroke-width="0.8" opacity="0.92" /></g>
+                    <g transform="rotate(144)"><path d="M 0,-12 C -22,-30 -42,-65 -22,-85 C -12,-95 -4,-86 0,-78 C 4,-86 12,-95 22,-85 C 42,-65 22,-30 0,-12 Z" fill="url(#petalGrad)" stroke="#c24368" stroke-width="0.8" opacity="0.92" /></g>
+                    <g transform="rotate(216)"><path d="M 0,-12 C -22,-30 -42,-65 -22,-85 C -12,-95 -4,-86 0,-78 C 4,-86 12,-95 22,-85 C 42,-65 22,-30 0,-12 Z" fill="url(#petalGrad)" stroke="#c24368" stroke-width="0.8" opacity="0.92" /></g>
+                    <g transform="rotate(288)"><path d="M 0,-12 C -22,-30 -42,-65 -22,-85 C -12,-95 -4,-86 0,-78 C 4,-86 12,-95 22,-85 C 42,-65 22,-30 0,-12 Z" fill="url(#petalGrad)" stroke="#c24368" stroke-width="0.8" opacity="0.92" /></g>
+                </g>
+                <circle cx="0" cy="0" r="28" fill="url(#centerGlow)" />
+            </g>
+        </svg>
+        `;
+
+        function createSakuraFlowers() {
+            const container = document.getElementById('sakura-container');
+            for (let i = 0; i < 24; i++) {
+                const flower = document.createElement('div');
+                flower.classList.add('sakura-flower');
+                flower.innerHTML = SAKURA_FLOWER_SVG;
+                const size = Math.random() * 30 + 30; 
+                const left = Math.random() * 100;
+                const fallDuration = Math.random() * 8 + 7;
+                const swayDuration = Math.random() * 4 + 3;
+                const delay = Math.random() * 8;
+                flower.style.width = `${size}px`;
+                flower.style.height = `${size}px`;
+                flower.style.left = `${left}%`;
+                flower.style.animationDuration = `${fallDuration}s, ${swayDuration}s`;
+                flower.style.animationDelay = `${delay}s, ${delay}s`;
+                container.appendChild(flower);
+            }
+        }
+        createSakuraFlowers();
+
+        function showCustomAlert(message, title = "Notice 🌸") {
+            const modal = document.getElementById('custom-alert-modal');
+            document.getElementById('alert-title').innerHTML = title;
+            document.getElementById('alert-message').innerText = message;
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0', 'scale-95');
+                modal.classList.add('opacity-100', 'scale-100');
+            }, 10);
+        }
+
+        function closeCustomAlert() {
+            const modal = document.getElementById('custom-alert-modal');
+            modal.classList.remove('opacity-100', 'scale-100');
+            modal.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => { modal.classList.add('hidden'); }, 300);
+        }
+
+        function showWinnerModal(perkTitle, winnerName, winningBid) {
+            document.getElementById('winner-perk-title').innerText = perkTitle;
+            document.getElementById('winner-name').innerText = winnerName;
+            document.getElementById('winner-bid').innerText = winningBid || 0;
+            
+            const modal = document.getElementById('winner-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0', 'scale-95');
+                modal.classList.add('opacity-100', 'scale-100');
+            }, 10);
+        }
+
+        function closeWinnerModal() {
+            const modal = document.getElementById('winner-modal');
+            modal.classList.remove('opacity-100', 'scale-100');
+            modal.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => { modal.classList.add('hidden'); }, 300);
+        }
+
+        const socket = io();
+        let currentUser = null;
+        let allPerks = [];
+        let winnerHistoryData = [];
+        let selectedAvatarData = null;
+        let teacherSelectedSections = [];
+        let teacherStateData = {};
+
+        function addTeacherSectionToList() {
+            const course = document.getElementById('teacher-add-course').value;
+            const year = document.getElementById('teacher-add-year').value;
+            const letter = document.getElementById('teacher-add-letter').value;
+            const formatted = `${course} ${year} - ${letter}`;
+
+            if (!teacherSelectedSections.includes(formatted)) {
+                teacherSelectedSections.push(formatted);
+                renderTeacherSectionBadges();
+            }
+        }
+
+        function removeTeacherSection(sec) {
+            teacherSelectedSections = teacherSelectedSections.filter(s => s !== sec);
+            renderTeacherSectionBadges();
+        }
+
+        function renderTeacherSectionBadges() {
+            const container = document.getElementById('teacher-added-sections');
+            container.innerHTML = teacherSelectedSections.map(sec => `
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                    ${sec} <i class="fa-solid fa-xmark cursor-pointer hover:text-white" onclick="removeTeacherSection('${sec}')"></i>
+                </span>
+            `).join('');
+        }
+
+        function openAvatarModal() {
+            const modal = document.getElementById('avatar-modal');
+            document.getElementById('modal-name-input').value = currentUser ? currentUser.name : '';
+            document.getElementById('avatar-url-input').value = currentUser ? (currentUser.avatar || '') : '';
+            document.getElementById('avatar-preview').src = currentUser ? (currentUser.avatar || '') : '';
+            selectedAvatarData = currentUser ? currentUser.avatar : null;
+            modal.classList.remove('hidden');
+        }
+
+        function closeAvatarModal() {
+            document.getElementById('avatar-modal').classList.add('hidden');
+        }
+
+        function previewAvatarUrl() {
+            const url = document.getElementById('avatar-url-input').value;
+            if (url) {
+                selectedAvatarData = url;
+                document.getElementById('avatar-preview').src = url;
+            }
+        }
+
+        function selectPreset(style) {
+            const seed = Math.floor(Math.random() * 1000);
+            const url = `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}`;
+            document.getElementById('avatar-url-input').value = url;
+            selectedAvatarData = url;
+            document.getElementById('avatar-preview').src = url;
+        }
+
+        function handleModalFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    selectedAvatarData = e.target.result;
+                    document.getElementById('avatar-preview').src = e.target.result;
+                    document.getElementById('avatar-url-input').value = '';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function handleSignupFileUpload(event, role) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    if (role === 'student') {
+                        document.getElementById('signup-avatar').value = e.target.result;
+                    } else {
+                        document.getElementById('teacher-signup-avatar').value = e.target.result;
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function saveAvatar() {
+            const newName = document.getElementById('modal-name-input').value.trim();
+            const activeSec = currentUser ? (currentUser.section || (currentUser.sections && currentUser.sections[0])) : null;
+            
+            if (newName && currentUser && newName !== currentUser.name) {
+                socket.emit('update_name', { userId: currentUser.id, newName, section: activeSec });
+            }
+
+            if (selectedAvatarData && currentUser && selectedAvatarData !== currentUser.avatar) {
+                socket.emit('update_avatar', { userId: currentUser.id, avatarUrl: selectedAvatarData, section: activeSec });
+            }
+
+            closeAvatarModal();
+        }
+
+        socket.on('name_updated', ({ name }) => {
+            if (currentUser) {
+                currentUser.name = name;
+                const formattedName = currentUser.section ? `${currentUser.name} (${currentUser.section})` : currentUser.name;
+                document.getElementById('user-name').innerText = formattedName;
+                showCustomAlert('Your display name has been updated!', 'Profile Updated 🌸');
+            }
+        });
+
+        socket.on('avatar_updated', ({ avatar }) => {
+            if (currentUser) {
+                currentUser.avatar = avatar;
+                document.getElementById('user-avatar').src = avatar;
+            }
+        });
+
+        socket.on('profile_error', (msg) => showCustomAlert(msg, "Profile Error 🌸"));
+
+        function switchPortal(role) {
+            if (role === 'student') showStudentForms();
+            else openTeacherModal();
+        }
+
+        function openTeacherModal() {
+            const modal = document.getElementById('teacher-modal');
+            const passInput = document.getElementById('modal-passcode');
+            passInput.value = '';
+            modal.classList.remove('hidden');
+            setTimeout(() => passInput.focus(), 100);
+        }
+
+        function closeTeacherModal() { document.getElementById('teacher-modal').classList.add('hidden'); }
+
+        function handlePasscodeKeyDown(e) {
+            if (e.key === 'Enter') confirmTeacherPasscode();
+            else if (e.key === 'Escape') closeTeacherModal();
+        }
+
+        function confirmTeacherPasscode() {
+            const pass = document.getElementById('modal-passcode').value;
+            if (pass === "admin123") {
+                closeTeacherModal();
+                showTeacherForms();
+            } else {
+                showCustomAlert("Incorrect passcode!", "Access Denied 🌸");
+            }
+        }
+
+        function showStudentForms() {
+            document.getElementById('student-login-form').classList.remove('hidden');
+            document.getElementById('student-signup-form').classList.add('hidden');
+            document.getElementById('teacher-login-form').classList.add('hidden');
+            document.getElementById('teacher-signup-form').classList.add('hidden');
+            document.getElementById('tab-student').className = 'w-1/2 py-2.5 text-sm font-bold rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-lg transition-all duration-200';
+            document.getElementById('tab-teacher').className = 'w-1/2 py-2.5 text-sm font-semibold text-slate-400 hover:text-white rounded-xl transition-all duration-200';
+        }
+
+        function showTeacherForms() {
+            document.getElementById('teacher-login-form').classList.remove('hidden');
+            document.getElementById('teacher-signup-form').classList.add('hidden');
+            document.getElementById('student-login-form').classList.add('hidden');
+            document.getElementById('student-signup-form').classList.add('hidden');
+            document.getElementById('tab-student').className = 'w-1/2 py-2.5 text-sm font-semibold text-slate-400 hover:text-white rounded-xl transition-all duration-200';
+            document.getElementById('tab-teacher').className = 'w-1/2 py-2.5 text-sm font-bold rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-lg transition-all duration-200';
+        }
+
+        function toggleAuthMode(role, mode) {
+            if (role === 'student') {
+                document.getElementById('student-login-form').classList.toggle('hidden', mode === 'signup');
+                document.getElementById('student-signup-form').classList.toggle('hidden', mode === 'login');
+            } else if (role === 'teacher') {
+                document.getElementById('teacher-login-form').classList.toggle('hidden', mode === 'signup');
+                document.getElementById('teacher-signup-form').classList.toggle('hidden', mode === 'login');
+            }
+        }
+
+        function toggleTargetSelect() {
+            const isAll = document.getElementById('target-select').value === 'all';
+            document.getElementById('student-select').style.display = isAll ? 'none' : 'block';
+        }
+
+        function loginStudent() {
+            socket.emit('login_student', {
+                name: document.getElementById('login-name').value,
+                password: document.getElementById('login-pass').value
+            });
+        }
+
+        function signupStudent() {
+            const course = document.getElementById('signup-course').value;
+            const year = document.getElementById('signup-year').value;
+            const sectionLetter = document.getElementById('signup-section-letter').value;
+            const formattedSection = `${course} ${year} - ${sectionLetter}`;
+
+            socket.emit('signup_student', {
+                name: document.getElementById('signup-name').value,
+                section: formattedSection,
+                avatar: document.getElementById('signup-avatar').value,
+                password: document.getElementById('signup-pass').value
+            });
+        }
+
+        function loginTeacher() {
+            socket.emit('login_teacher', {
+                name: document.getElementById('teacher-name').value,
+                password: document.getElementById('teacher-pass').value
+            });
+        }
+
+        function signupTeacher() {
+            socket.emit('signup_teacher', {
+                name: document.getElementById('teacher-signup-name').value,
+                sections: teacherSelectedSections,
+                avatar: document.getElementById('teacher-signup-avatar').value,
+                password: document.getElementById('teacher-signup-pass').value
+            });
+        }
+
+        function changeTeacherActiveSection(newSection) {
+            if (currentUser && currentUser.role === 'teacher') {
+                currentUser.section = newSection;
+                const formattedName = `${currentUser.name} (${currentUser.section})`;
+                document.getElementById('user-name').innerText = formattedName;
+                
+                if (teacherStateData[newSection]) {
+                    renderStateForSection(teacherStateData[newSection]);
+                }
+            }
+        }
+
+        socket.on('login_success', ({ user, history }) => {
+            currentUser = user;
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('app-screen').classList.remove('hidden');
+
+            if (user.role === 'teacher') {
+                const sections = Array.isArray(user.sections) ? user.sections : [user.section];
+                const select = document.getElementById('teacher-active-section-select');
+                select.innerHTML = sections.map(s => `<option value="${s}">${s}</option>`).join('');
+                document.getElementById('teacher-section-bar').classList.remove('hidden');
+                if (sections.length > 0) currentUser.section = sections[0];
+
+                const formattedName = `${user.name} (${currentUser.section})`;
+                document.getElementById('user-name').innerText = formattedName;
+                document.getElementById('user-role-badge').innerText = user.role.toUpperCase();
+                if (user.avatar) document.getElementById('user-avatar').src = user.avatar;
+
+                document.getElementById('wallet-info').classList.add('hidden');
+                document.getElementById('teacher-panel').classList.remove('hidden');
+            } else {
+                const formattedName = `${user.name} (${user.section})`;
+                document.getElementById('user-name').innerText = formattedName;
+                document.getElementById('user-role-badge').innerText = user.role.toUpperCase();
+                if (user.avatar) document.getElementById('user-avatar').src = user.avatar;
+
+                document.getElementById('wallet-info').classList.remove('hidden');
+                document.getElementById('teacher-panel').classList.add('hidden');
+                document.getElementById('coin-balance').innerText = user.coin_balance;
+                renderHistory(history);
+            }
+        });
+
+        socket.on('state_update', ({ section, users, archivedUsers, perks, winnerHistory, analytics }) => {
+            if (currentUser && currentUser.role === 'teacher') {
+                teacherStateData[section] = { users, archivedUsers, perks, winnerHistory, analytics };
+                if (currentUser.section === section) {
+                    renderStateForSection(teacherStateData[section]);
+                }
+            } else {
+                allPerks = perks;
+                winnerHistoryData = winnerHistory || [];
+                if (currentUser) {
+                    const freshUser = users.find(u => u.id === currentUser.id);
+                    if (!freshUser && currentUser.role === 'student') {
+                        showCustomAlert('Your account has been archived by the teacher.', 'Account Archived 🌸');
+                        setTimeout(() => { logout(); }, 2000);
+                        return;
+                    }
+                    if (freshUser) {
+                        currentUser.coin_balance = freshUser.coin_balance;
+                        document.getElementById('coin-balance').innerText = freshUser.coin_balance;
+                    }
+                }
+                renderPerks();
+                renderWinnerHistory();
+            }
+        });
+
+        function renderStateForSection(data) {
+            allPerks = data.perks || [];
+            winnerHistoryData = data.winnerHistory || [];
+
+            document.getElementById('stat-coins').innerText = data.analytics.totalCoinsInCirculation;
+            document.getElementById('stat-auctions').innerText = data.analytics.activeAuctions;
+            document.getElementById('stat-bids').innerText = data.analytics.totalBidsPlaced;
+
+            const studentList = (data.users || []).filter(u => u.role === 'student');
+            const select = document.getElementById('student-select');
+            select.innerHTML = studentList
+                .map(s => `<option value="${s.id}">${s.name} (${s.coin_balance} coins)</option>`).join('');
+
+            renderStudentRoster(studentList);
+            renderArchivedRoster(data.archivedUsers || []);
+            renderPerks();
+            renderWinnerHistory();
+        }
+
+        socket.on('login_error', (msg) => showCustomAlert(msg, "Login Error 🌸"));
+        socket.on('signup_error', (msg) => showCustomAlert(msg, "Registration Error 🌸"));
+        socket.on('bid_error', (msg) => showCustomAlert(msg, "Bid Error 🌸"));
+        socket.on('outbid_notification', ({ userId, perkTitle }) => {
+            if (currentUser && userId === currentUser.id) {
+                showCustomAlert(`You were outbid on "${perkTitle}"! Your coins were refunded.`, "Outbid Alert ⚠️");
+            }
+        });
+
+        socket.on('auction_closed', ({ perkTitle, winnerName, winningBid }) => {
+            showWinnerModal(perkTitle, winnerName, winningBid);
+        });
+
+        function renderStudentRoster(students) {
+            const rosterContainer = document.getElementById('student-roster-list');
+            if (!rosterContainer) return;
+
+            if (students.length === 0) {
+                rosterContainer.innerHTML = '<p class="text-slate-500 col-span-full text-center py-2 text-xs">No active students in this section.</p>';
+                return;
+            }
+
+            rosterContainer.innerHTML = students.map(s => `
+                <div class="flex items-center justify-between p-3 bg-slate-900/80 rounded-xl border border-white/10">
+                    <div class="flex items-center gap-2.5 overflow-hidden">
+                        <img src="${s.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + encodeURIComponent(s.name)}" class="w-8 h-8 rounded-full bg-slate-100 flex-shrink-0 object-cover">
+                        <div class="truncate">
+                            <p class="font-bold text-white text-xs truncate">${s.name}</p>
+                            <p class="text-[10px] text-amber-400 font-bold"><i class="fa-solid fa-coins"></i> ${s.coin_balance} coins</p>
+                        </div>
+                    </div>
+                    <button onclick="archiveStudent(${s.id}, '${s.name.replace(/'/g, "\\'")}')" class="ml-2 px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-lg font-bold text-[11px] transition flex items-center gap-1 flex-shrink-0" title="Archive Student">
+                        <i class="fa-solid fa-box-archive"></i> Archive
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function renderArchivedRoster(archivedStudents) {
+            const container = document.getElementById('archived-roster-list');
+            const badge = document.getElementById('archived-count');
+            if (!container) return;
+
+            if (badge) badge.innerText = `${archivedStudents.length} ARCHIVED`;
+
+            if (archivedStudents.length === 0) {
+                container.innerHTML = '<p class="text-slate-500 col-span-full text-center py-2 text-xs">No archived students.</p>';
+                return;
+            }
+
+            container.innerHTML = archivedStudents.map(s => `
+                <div class="flex items-center justify-between p-3 bg-slate-900/40 rounded-xl border border-white/5 opacity-75 hover:opacity-100 transition">
+                    <div class="flex items-center gap-2.5 overflow-hidden">
+                        <img src="${s.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + encodeURIComponent(s.name)}" class="w-8 h-8 rounded-full bg-slate-100 flex-shrink-0 object-cover grayscale">
+                        <div class="truncate">
+                            <p class="font-bold text-slate-300 text-xs truncate">${s.name}</p>
+                            <p class="text-[10px] text-slate-500 font-bold"><i class="fa-solid fa-coins"></i> ${s.coin_balance} coins</p>
+                        </div>
+                    </div>
+                    <button onclick="unarchiveStudent(${s.id}, '${s.name.replace(/'/g, "\\'")}')" class="ml-2 px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-lg font-bold text-[11px] transition flex items-center gap-1 flex-shrink-0" title="Unarchive Student">
+                        <i class="fa-solid fa-rotate-left"></i> Restore
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function archiveStudent(studentId, name) {
+            if (confirm(`Are you sure you want to archive "${name}"?`)) {
+                socket.emit('archive_student', { studentId, section: currentUser.section });
+            }
+        }
+
+        function unarchiveStudent(studentId, name) {
+            if (confirm(`Bring back "${name}" to the active student roster?`)) {
+                socket.emit('unarchive_student', { studentId, section: currentUser.section });
+            }
+        }
+
+        function renderPerks() {
+            const container = document.getElementById('perks-list');
+            if (allPerks.length === 0) {
+                container.innerHTML = '<div class="glass-panel p-8 rounded-2xl text-center text-slate-400">No active perk auctions available for this section right now.</div>';
+                return;
+            }
+            container.innerHTML = allPerks.map(perk => {
+                const isClosed = perk.status === 'closed' || new Date(perk.ends_at) <= new Date();
+                return `
+                    <div class="glass-panel rounded-2xl p-5 shadow-lg border border-white/10 transition hover:border-pink-500/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${isClosed ? 'opacity-50' : ''}">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-extrabold text-white text-lg">${perk.title}</h4>
+                                <span class="text-[10px] font-black px-2.5 py-0.5 rounded-full ${isClosed ? 'bg-slate-800 text-slate-400' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}">
+                                    ${isClosed ? 'CLOSED' : 'LIVE'}
+                                </span>
+                            </div>
+                            <p class="text-xs text-slate-400">${perk.description}</p>
+                            <div class="flex items-center gap-4 text-xs text-slate-300 pt-1">
+                                <span>Highest Bid: <strong class="text-amber-400 text-sm"><i class="fa-solid fa-coins mr-0.5 text-xs"></i>${perk.current_bid}</strong> (${perk.highest_bidder_name || 'No bids yet'})</span>
+                                <span class="font-bold text-rose-400" id="timer-${perk.id}"></span>
+                            </div>
+                        </div>
+                        ${currentUser && currentUser.role === 'student' && !isClosed ? `
+                        <div class="flex items-center gap-2 w-full md:w-auto pt-2 md:pt-0">
+                            <div class="relative w-28">
+                                <i class="fa-solid fa-coins text-amber-400 absolute left-2.5 top-3 text-xs"></i>
+                                <input type="number" id="bid-input-${perk.id}" value="${perk.current_bid + 5}" min="${perk.current_bid + 1}" class="w-full bg-slate-900 border border-white/10 rounded-xl pl-7 pr-2 py-2 text-center font-bold text-sm text-white focus:outline-none focus:border-pink-500">
+                            </div>
+                            <button onclick="placeBid(${perk.id})" class="flex-1 md:flex-none bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-lg shadow-pink-500/20 transition active:scale-95">
+                                Place Bid
+                            </button>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+            updateTimers();
+        }
+
+        function renderWinnerHistory() {
+            const container = document.getElementById('winner-history-list');
+            if (!container) return;
+
+            if (!winnerHistoryData || winnerHistoryData.length === 0) {
+                container.innerHTML = '<div class="glass-panel p-5 rounded-2xl text-center text-slate-400 text-xs">No closed auctions in this section yet.</div>';
+                return;
+            }
+
+            container.innerHTML = winnerHistoryData.map(item => {
+                const hasWinner = !!item.highest_bidder_name;
+                const winnerDisplay = hasWinner ? item.highest_bidder_name : 'No Bids Placed';
+                const formattedDate = item.ends_at ? new Date(item.ends_at).toLocaleString() : 'Closed';
+
+                return `
+                    <div class="glass-panel rounded-2xl p-4 border border-amber-500/20 bg-slate-900/60 flex items-center justify-between gap-4">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-extrabold text-amber-300"><i class="fa-solid fa-award mr-1"></i>${item.title}</span>
+                                <span class="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30">CLOSED</span>
+                            </div>
+                            <p class="text-xs text-slate-300">
+                                Winner: <strong class="${hasWinner ? 'text-emerald-400 font-bold' : 'text-slate-400'}">${winnerDisplay}</strong>
+                            </p>
+                            <p class="text-[10px] text-slate-500">${formattedDate}</p>
+                        </div>
+                        <div class="text-right flex-shrink-0">
+                            <span class="text-xs font-extrabold text-amber-400 flex items-center justify-end gap-1">
+                                <i class="fa-solid fa-coins"></i> ${item.current_bid} coins
+                            </span>
+                            <span class="text-[10px] text-slate-400 block mt-0.5">${hasWinner ? 'Winning Bid' : 'Starting Bid'}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateTimers() {
+            allPerks.forEach(perk => {
+                const el = document.getElementById(`timer-${perk.id}`);
+                if (!el) return;
+                const diff = new Date(perk.ends_at) - new Date();
+                if (diff <= 0 || perk.status === 'closed') {
+                    el.innerText = 'Auction Closed';
+                } else {
+                    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    const secs = Math.floor((diff % (1000 * 60)) / 1000);
+                    if (days > 0) {
+                        el.innerText = `⏳ ${days}d ${hours}h ${mins}m left`;
+                    } else if (hours > 0) {
+                        el.innerText = `⏳ ${hours}h ${mins}m ${secs}s left`;
+                    } else {
+                        el.innerText = `⏳ ${mins}m ${secs}s left`;
+                    }
+                }
+            });
+        }
+        setInterval(updateTimers, 1000);
+
+        function renderHistory(history) {
+            const container = document.getElementById('history-container');
+            if (!history || history.length === 0) {
+                container.innerHTML = '<p class="text-slate-500 text-center py-4">No recent coin transactions.</p>';
+                return;
+            }
+            container.innerHTML = history.map(h => `
+                <div class="flex justify-between items-center p-3 bg-slate-900/60 rounded-xl border border-white/5">
+                    <span class="text-slate-300 font-medium">${h.reason}</span>
+                    <span class="font-extrabold flex items-center gap-1 ${h.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
+                        ${h.amount >= 0 ? '+' : ''}${h.amount} <i class="fa-solid fa-coins text-amber-400 text-xs"></i>
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        function awardCoins() {
+            socket.emit('update_coins', {
+                target: document.getElementById('target-select').value,
+                studentId: document.getElementById('student-select').value,
+                section: currentUser.section,
+                amount: parseInt(document.getElementById('coin-amount').value, 10),
+                reason: document.getElementById('coin-reason').value
+            });
+        }
+
+        function createPerk() {
+            socket.emit('create_perk', {
+                title: document.getElementById('perk-title').value,
+                description: document.getElementById('perk-desc').value,
+                section: currentUser.section,
+                startingBid: parseInt(document.getElementById('perk-bid').value, 10),
+                durationValue: parseInt(document.getElementById('perk-duration').value, 10),
+                durationUnit: document.getElementById('perk-unit').value
+            });
+            document.getElementById('perk-title').value = '';
+            document.getElementById('perk-desc').value = '';
+        }
+
+        function placeBid(perkId) {
+            const bidAmount = parseInt(document.getElementById(`bid-input-${perkId}`).value, 10);
+            socket.emit('place_bid', { perkId, userId: currentUser.id, bidAmount });
+        }
+
+        function logout() {
+            location.reload();
+        }
+    </script>
+</body>
+</html>
